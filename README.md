@@ -1,122 +1,122 @@
 # Stock Market Data Pipeline
 
-End-to-end machine learning pipeline for stock market analysis - from raw API data collection through DuckDB storage to bankruptcy prediction models.
+Pipeline do analizy danych giełdowych - od pobierania surowych danych z API, przez przechowywanie w DuckDB, po modele predykcji bankructwa.
 
-## Overview
+## Opis projektu
 
-This project demonstrates a complete data engineering and machine learning workflow:
-- **Data Collection**: Automated fetching from multiple APIs (SEC EDGAR, FRED, yfinance, Stooq)
-- **Data Storage**: Three-layer DuckDB architecture (raw → cleaned → staging)
-- **Feature Engineering**: Financial ratios, Altman Z-score, macroeconomic indicators
-- **ML Models**: Bankruptcy prediction using Random Forest, XGBoost, Logistic Regression
+Projekt łączy data engineering i machine learning:
+- **Pobieranie danych**: Automatyczne pobieranie z SEC EDGAR, FRED, yfinance, Stooq
+- **Baza danych**: Trójwarstwowa architektura DuckDB (raw → cleaned → staging)
+- **Feature engineering**: Wskaźniki finansowe, Altman Z-score, dane makroekonomiczne
+- **Modele ML**: Predykcja bankructwa (Random Forest, XGBoost, Logistic Regression)
 
-## Features
+## Funkcjonalności
 
-- **Price Data**: Historical OHLCV from yfinance (US) and Stooq (Poland)
-- **Financial Reports**: SEC EDGAR API with automatic 10-K/10-Q parsing
-- **Macroeconomic Data**: FRED API (US) and Eurostat/DBnomics (Poland)
-- **Company Metadata**: ~12k SEC-registered companies with SIC filtering
-- **Incremental Updates**: Smart fetching to avoid redundant API calls
-- **Bankruptcy Module**: ML-based risk scoring with interpretable features
+- **Dane cenowe**: Historyczne OHLCV z yfinance (USA) i Stooq (Polska)
+- **Raporty finansowe**: SEC EDGAR API z automatycznym parsowaniem 10-K/10-Q
+- **Dane makroekonomiczne**: FRED API (USA) i Eurostat/DBnomics (Polska)
+- **Metadane spółek**: ~12k firm zarejestrowanych w SEC z filtrowaniem SIC
+- **Aktualizacje przyrostowe**: Inteligentne pobieranie bez zbędnych wywołań API
+- **Moduł bankructwa**: Scoring ryzyka z interpretowalnymi cechami
 
-## Project Structure
+## Struktura projektu
 
 ```
 Stock_market/
-├── config/                     # Configuration files
-│   ├── settings.yaml.template  # Template (copy to settings.yaml)
-│   ├── logging.conf            # Logging configuration
-│   └── tickers_*.csv/xlsx      # Ticker lists
+├── config/                     # Pliki konfiguracyjne
+│   ├── settings.yaml.template  # Szablon (skopiuj do settings.yaml)
+│   ├── logging.conf            # Konfiguracja logowania
+│   └── tickers_*.csv/xlsx      # Listy tickerów
 ├── src/
-│   ├── data_fetch/             # API data fetchers
-│   ├── database/               # DuckDB schema and loaders
-│   ├── preprocessing/          # Data transformation
-│   ├── bankruptcy/             # ML models for bankruptcy prediction
-│   ├── analysis/               # Visualization and statistics
-│   └── utils/                  # Helper functions
-├── tests/                      # Unit tests
-├── main.py                     # CLI entry point
-└── requirements.txt            # Python dependencies
+│   ├── data_fetch/             # Pobieranie danych z API
+│   ├── database/               # Schemat DuckDB i loadery
+│   ├── preprocessing/          # Transformacja danych
+│   ├── bankruptcy/             # Modele ML do predykcji bankructwa
+│   ├── analysis/               # Wizualizacja i statystyki
+│   └── utils/                  # Funkcje pomocnicze
+├── tests/                      # Testy jednostkowe
+├── main.py                     # Punkt wejścia CLI
+└── requirements.txt            # Zależności Python
 ```
 
-## Database Architecture
+## Architektura bazy danych
 
-### Schema `main` (raw data)
-| Table | Description |
-|-------|-------------|
-| `prices` | OHLCV price data |
-| `financials` | SEC financial reports |
-| `macro` | Macroeconomic indicators |
-| `company_metadata` | SEC company information |
-| `company_status` | Active/delisted status |
+### Schema `main` (surowe dane)
+| Tabela | Opis |
+|--------|------|
+| `prices` | Dane cenowe OHLCV |
+| `financials` | Raporty finansowe SEC |
+| `macro` | Wskaźniki makroekonomiczne |
+| `company_metadata` | Informacje o spółkach SEC |
+| `company_status` | Status aktywny/wycofany |
 
-### Schema `staging` (ML-ready)
-| Table | Description |
-|-------|-------------|
-| `master_dataset` | Monthly granularity, ~88 features |
-| `macro_normalized` | Standardized macro indicators |
+### Schema `staging` (dane do ML)
+| Tabela | Opis |
+|--------|------|
+| `master_dataset` | Granulacja miesięczna, ~88 cech |
+| `macro_normalized` | Znormalizowane wskaźniki makro |
 
-## Installation
+## Instalacja
 
 ```bash
-# Clone and setup
-git clone https://github.com/yourusername/stock-market-pipeline.git
-cd stock-market-pipeline
+# Klonowanie i konfiguracja
+git clone https://github.com/kkozbial/StockPricePredictor-ML.git
+cd StockPricePredictor-ML
 python -m venv venv
 venv\Scripts\activate  # Windows
 pip install -r requirements.txt
 
-# Configure API keys
+# Konfiguracja kluczy API
 cp config/settings.yaml.template config/settings.yaml
-# Edit settings.yaml with your FRED API key
+# Edytuj settings.yaml i wpisz klucz FRED API
 ```
 
-## Usage
+## Użycie
 
 ```bash
-# Build database from scratch
+# Zbuduj bazę od zera
 python main.py --steps build
 
-# Update existing database
+# Zaktualizuj istniejącą bazę
 python main.py --steps update
 
-# Fetch specific data modules
+# Pobierz wybrane moduły danych
 python main.py --steps fetch --fetch-modules prices financials
 
-# Run analysis and generate reports
+# Uruchom analizy i generuj raporty
 python main.py --steps analysis
 ```
 
-## ML Module - Bankruptcy Prediction
+## Moduł ML - Predykcja bankructwa
 
 ```python
 from src.bankruptcy.train import train_model, compare_models
 from src.bankruptcy.data_loader import load_bankruptcy_data
 
-# Load training data
+# Załaduj dane treningowe
 X, y = load_bankruptcy_data()
 
-# Compare models
+# Porównaj modele
 results = compare_models(X, y)
 
-# Train selected model
+# Trenuj wybrany model
 result = train_model(X, y, model_type="random_forest")
 print(f"ROC-AUC: {result.roc_auc:.3f}")
 ```
 
-## Requirements
+## Wymagania
 
 - Python 3.10+
-- FRED API key (free): https://fred.stlouisfed.org/docs/api/api_key.html
+- Klucz FRED API (darmowy): https://fred.stlouisfed.org/docs/api/api_key.html
 
-## Tech Stack
+## Technologie
 
-- **Database**: DuckDB
-- **Data Processing**: pandas, NumPy
+- **Baza danych**: DuckDB
+- **Przetwarzanie danych**: pandas, NumPy
 - **ML**: scikit-learn, XGBoost
-- **Visualization**: matplotlib, seaborn
-- **APIs**: yfinance, fredapi, requests
+- **Wizualizacja**: matplotlib, seaborn
+- **API**: yfinance, fredapi, requests
 
-## License
+## Licencja
 
 MIT
