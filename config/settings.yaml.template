@@ -1,0 +1,83 @@
+project:
+  # Nazwa projektu uzywana w logach i raportach
+  name: projekt_dane
+  # Opcjonalna sciezka bazowa (aktualnie niewykorzystywana)
+  base_path: ..
+paths:
+  # Glowny katalog z danymi
+  data_root: data
+  # Folder z danymi surowymi
+  raw: data/raw
+  # Folder z danymi po wstepnym przetworzeniu (ARCHIWUM - nie używane w nowej architekturze)
+  processed: data/processed
+  # Folder z finalnym zbiorem danych (ARCHIWUM - nie używane w nowej architekturze)
+  final: data/final
+  # Folder na raporty, wykresy i tabele
+  reports: reports
+  # Folder na logi pipeline'u
+  logs: logs
+
+database:
+  # Sciezka do pliku bazy danych DuckDB
+  path: data/stock_market.db
+  # Typ bazy (dla przyszlej rozszerzalnosci)
+  type: duckdb
+api:
+  # Klucz do Alpha Vantage wykorzystywany przy raportach finansowych i liczbie akcji
+  # Zarejestruj się na https://www.alphavantage.co/support/#api-key
+  alpha_vantage_key: YOUR_ALPHA_VANTAGE_KEY_HERE
+  # Klucz do bazy FRED uzywany przy pobieraniu danych makro
+  # Zarejestruj się na https://fred.stlouisfed.org/docs/api/api_key.html
+  fred_api_key: YOUR_FRED_API_KEY_HERE
+fetch:
+  # Interwal danych cenowych z yfinance (np. 1d, 1wk, 1mo)
+  price_interval: 1mo
+  # Data poczatku historii cen w formacie YYYY-MM-DD
+  price_start: 2005-01-01
+
+  # Tickery polskie (GPW) do pobrania ze Stooq
+  tickers_pl:
+    - PKO.PL           # PKO Bank Polski
+    - PZU.PL           # PZU SA
+    - CDR.PL           # CD Projekt
+
+  # Lista serii makro ekonomicznych pobieranych z FRED (USA)
+  macro_series:
+    - CPIAUCSL         # Consumer Price Index (CPI, inflacja USA)
+    - UNRATE           # Unemployment Rate (%)
+    - GDPC1            # Real Gross Domestic Product (Real GDP)
+    - RSXFS            # Retail Sales (Sprzedaż detaliczna)
+    - FEDFUNDS         # Federal Funds Rate (Stopa procentowa Fed)
+    # UWAGA: DCOILWTICO (ceny ropy) ma granulację dzienną - usunięto
+
+  # Serie makroekonomiczne dla Polski (DBnomics)
+  # Format: provider/dataset/series
+  # Nazwy plików będą: macro_pl_{series_code_with_underscores}.csv
+  macro_series_pl:
+    - OECD/MEI/POL.CPALTT01.IXOB.M           # Inflacja (CPI) dla Polski - miesięcznie
+    - OECD/QNA/POL.B1_GE.CQR.Q               # PKB realny - kwartalnie
+    - OECD/MEI/POL.LRHUTTTT.STSA.Q           # Stopa bezrobocia - kwartalnie
+    - OECD/MEI/POL.IRSTCI01.ST.M             # Stopa procentowa krótkoterminowa - miesięcznie
+    - OECD/MEI/POL.SLRTTO01.IXOB.M           # Sprzedaż detaliczna - miesięcznie
+
+  # Ustawienia pobierania przyrostowego (incremental fetch)
+  # Gdy włączone, system pobiera tylko nowe dane od ostatniej daty w bazie
+  # Gdy wyłączone, pobiera całą historię i nadpisuje dane
+  incremental:
+    # Pobieranie przyrostowe dla danych cenowych (prices)
+    # true = pobierz tylko nowe dane od ostatniej daty
+    # false = pobierz pełną historię od price_start
+    prices: true
+
+    # Pobieranie przyrostowe dla danych finansowych (financials)
+    # true = porównaj z istniejącymi danymi i dodaj tylko nowe wpisy
+    # false = pobierz i nadpisz wszystkie dane
+    financials: true
+
+    # Pobieranie przyrostowe dla danych makroekonomicznych (macro)
+    # true = pobierz tylko nowe dane od ostatniej daty
+    # false = pobierz pełną serię i nadpisz
+    macro: true
+logging:
+  # Nazwa pliku konfiguracji logowania
+  config_file: logging.conf

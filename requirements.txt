@@ -1,0 +1,36 @@
+# Stock Market Data Pipeline - Dependencies
+# Python 3.10+
+
+# === Baza danych ===
+duckdb>=0.9.0
+
+# === Pobieranie danych ===
+yfinance>=0.2.30
+pandas>=2.0.0
+requests>=2.31.0
+openpyxl>=3.1.0          # Odczyt plików Excel (tickers_pl.xlsx)
+
+# === Dane makroekonomiczne ===
+fredapi>=0.5.0           # FRED API (USA)
+# eurostat - dane przez requests
+
+# === Machine Learning ===
+scikit-learn>=1.3.0
+xgboost>=2.0.0
+numpy>=1.24.0
+
+# === Wizualizacja ===
+matplotlib>=3.7.0
+seaborn>=0.12.0
+
+# === Konfiguracja ===
+PyYAML>=6.0
+
+# === Narzędzia ===
+tqdm>=4.65.0             # Paski postępu
+
+# === Opcjonalne (development) ===
+# pytest>=7.4.0          # Testy
+# black>=23.0.0          # Formatowanie kodu
+# ruff>=0.1.0            # Linting
+# jupyter>=1.0.0         # Notebooki

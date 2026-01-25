@@ -1,0 +1,84 @@
+# ============================================
+# Python & System Core
+# ============================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+*.egg
+.DS_Store
+Thumbs.db
+nul
+
+# ============================================
+# Środowisko i IDE
+# ============================================
+venv/
+env/
+.venv/
+.conda/
+.vscode/
+.idea/
+*.iml
+*.sublime-project
+*.sublime-workspace
+
+# ============================================
+# Dane, Logi i Wyniki (nie commitowane)
+# ============================================
+# Dane
+data/
+!data/.gitkeep
+*.db
+*.duckdb
+
+# Logi
+logs/
+*.log
+!logs/.gitkeep
+
+# Wyniki i Raporty
+reports/
+outputs/
+results/
+
+# Pliki tymczasowe
+*.tmp
+*.temp
+*.swp
+
+# ============================================
+# Konfiguracja i Bezpieczeństwo
+# ============================================
+# Konfiguracja z kluczami API (NIGDY nie commituj!)
+config/settings.yaml
+# Pokazujemy tylko szablon
+!config/settings.yaml.template
+!config/logging.conf
+
+# ============================================
+# Modele ML (zbyt duze)
+# ============================================
+*.pkl
+*.pickle
+*.joblib
+*.h5
+*.pt
+*.pth
+models/
+
+# ============================================
+# Narzedzia AI
+# ============================================
+.claude/
+
+# ============================================
+# Testy
+# ============================================
+.pytest_cache/
+.coverage
+htmlcov/
