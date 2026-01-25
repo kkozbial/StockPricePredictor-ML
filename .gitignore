@@ -28,7 +28,7 @@ env/
 *.sublime-workspace
 
 # ============================================
-# Dane, Logi i Wyniki (nie commitowane)
+# Dane, Logi i Wyniki
 # ============================================
 # Dane
 data/
@@ -54,14 +54,12 @@ results/
 # ============================================
 # Konfiguracja i Bezpieczeństwo
 # ============================================
-# Konfiguracja z kluczami API (NIGDY nie commituj!)
 config/settings.yaml
-# Pokazujemy tylko szablon
 !config/settings.yaml.template
 !config/logging.conf
 
 # ============================================
-# Modele ML (zbyt duze)
+# Modele ML
 # ============================================
 *.pkl
 *.pickle
@@ -70,11 +68,6 @@ config/settings.yaml
 *.pt
 *.pth
 models/
-
-# ============================================
-# Narzedzia AI
-# ============================================
-.claude/
 
 # ============================================
 # Testy
