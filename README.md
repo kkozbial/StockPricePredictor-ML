@@ -1,39 +1,45 @@
 # Stock Market Data Pipeline
 
-Pipeline do analizy danych giełdowych - od pobierania surowych danych z API, przez przechowywanie w DuckDB, po modele predykcji bankructwa.
+Pipeline do analizy danych giełdowych - od pobierania surowych danych z API, przez przechowywanie w DuckDB, po modele uczenia maszynowego.
 
 ## Opis projektu
 
-Projekt łączy data engineering i machine learning:
-- **Pobieranie danych**: Automatyczne pobieranie z SEC EDGAR, FRED, yfinance, Stooq
-- **Baza danych**: Trójwarstwowa architektura DuckDB (raw → cleaned → staging)
-- **Feature engineering**: Wskaźniki finansowe, Altman Z-score, dane makroekonomiczne
-- **Modele ML**: Predykcja bankructwa (Random Forest, XGBoost, Logistic Regression)
+Kompleksowy pipeline łączący pobieranie danych z wielu źródeł, transformację i modelowanie predykcyjne:
+- **Integracja danych**: Pobieranie z publicznych API (SEC, FRED, Yahoo Finance) z obsługą cache'owania
+- **Inżynieria danych**: Trójwarstwowa architektura bazy danych (raw → cleaned → staging) w DuckDB
+- **Feature engineering**: Konstruowanie cech finansowych i ekonomicznych dla modeli ML
+- **Machine Learning**: Modele predykcyjne z walidacją (Random Forest, XGBoost, Logistic Regression)
 
 ## Funkcjonalności
 
-- **Dane cenowe**: Historyczne OHLCV z yfinance (USA) i Stooq (Polska)
-- **Raporty finansowe**: SEC EDGAR API z automatycznym parsowaniem 10-K/10-Q
-- **Dane makroekonomiczne**: FRED API (USA) i Eurostat/DBnomics (Polska)
-- **Metadane spółek**: ~12k firm zarejestrowanych w SEC z filtrowaniem SIC
-- **Aktualizacje przyrostowe**: Inteligentne pobieranie bez zbędnych wywołań API
-- **Moduł bankructwa**: Scoring ryzyka z interpretowalnymi cechami
+- **Integracja danych z wielu źródeł**: Agregacja danych z rynku akcji, rynków finansowych i danych makroekonomicznych
+- **System ETL**: Automatyzacja pobierania, czyszczenia i transformacji surowych danych
+- **Skalowalna architektura**: Zdolność do obsługi dużych zbiorów danych z optymalizacją wydajności
+- **Feature engineering**: Wskaźniki finansowe i makroekonomiczne, Altman Z-score
+- **Modele predykcyjne**: Implementacja i walidacja algorytmów ML
 
 ## Struktura projektu
 
 ```
 Stock_market/
-├── config/                     # Pliki konfiguracyjne
+├── config/                     # Konfiguracja i metadane
 │   ├── settings.yaml.template  # Szablon (skopiuj do settings.yaml)
 │   ├── logging.conf            # Konfiguracja logowania
-│   └── tickers_*.csv/xlsx      # Listy tickerów
+│   └── tickers_list.csv        # Lista tickerów do analizy
 ├── src/
-│   ├── data_fetch/             # Pobieranie danych z API
-│   ├── database/               # Schemat DuckDB i loadery
-│   ├── preprocessing/          # Transformacja danych
-│   ├── bankruptcy/             # Modele ML do predykcji bankructwa
-│   ├── analysis/               # Wizualizacja i statystyki
-│   └── utils/                  # Funkcje pomocnicze
+│   ├── data_fetch/             # Pobieranie danych z API (yfinance, SEC, FRED, Stooq)
+│   ├── database/               # Schemat DuckDB (raw, cleaned, staging) + loadery
+│   ├── preprocessing/          # Transformacja: normalizacja + feature engineering
+│   ├── bankruptcy/             # Modele ML (Random Forest, XGBoost, LR)
+│   ├── analysis/               # Statystyki, wizualizacje, raporty
+│   └── utils/                  # Helpery: config, logging, API, I/O
+├── data/                       # Dane
+│   ├── raw/                    # Surowe dane z API (JSON)
+│   ├── processed/              # Wyczyszczone dane (CSV)
+│   └── cache/                  # Cache SEC filingów (nie usuwać)
+├── logs/                       # Logi pipeline'u
+├── reports/                    # Raporty i analizy
+├── outputs/                    # Wyniki: predykcje, modele ML
 ├── tests/                      # Testy jednostkowe
 ├── main.py                     # Punkt wejścia CLI
 └── requirements.txt            # Zależności Python
@@ -50,11 +56,19 @@ Stock_market/
 | `company_metadata` | Informacje o spółkach SEC |
 | `company_status` | Status aktywny/wycofany |
 
+### Schema `cleaned` (dane wyczyszczone)
+| Tabela | Opis |
+|--------|------|
+| `prices_clean` | Ceny bez duplikatów i outlierów |
+| `financials_clean` | Finanse z walidacją |
+| `macro_clean` | Makro znormalizowana |
+
 ### Schema `staging` (dane do ML)
 | Tabela | Opis |
 |--------|------|
-| `master_dataset` | Granulacja miesięczna, ~88 cech |
-| `macro_normalized` | Znormalizowane wskaźniki makro |
+| `master_dataset` | Granulacja miesięczna, ~88 cech (gotowe do ML) |
+| `macro_normalized` | Wskaźniki makro znormalizowane |
+| `features_engineered` | Wskaźniki z feature engineering |
 
 ## Instalacja
 
@@ -74,16 +88,22 @@ cp config/settings.yaml.template config/settings.yaml
 ## Użycie
 
 ```bash
+# Domyślnie: fetch + update (tryb interaktywny)
+python main.py
+
 # Zbuduj bazę od zera
 python main.py --steps build
 
-# Zaktualizuj istniejącą bazę
+# Zaktualizuj istniejącą bazę (auto preprocessing)
 python main.py --steps update
 
-# Pobierz wybrane moduły danych
+# Pobierz dane (wybrane moduły: prices, financials, shares, dividends, sectors, macro)
 python main.py --steps fetch --fetch-modules prices financials
 
-# Uruchom analizy i generuj raporty
+# Przetwórz dane (normalizacja + feature engineering)
+python main.py --steps preprocess
+
+# Uruchom analizy i raporty
 python main.py --steps analysis
 ```
 

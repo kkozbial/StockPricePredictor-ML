@@ -33,7 +33,8 @@ TABLES = {
             end_date DATE NOT NULL,
             value DOUBLE,
             form VARCHAR,
-            filing_date DATE
+            filing_date DATE,
+            value_source VARCHAR
         )
     """,
     "macro": """
@@ -132,6 +133,13 @@ def create_all_tables() -> None:
         except Exception as exc:
             LOGGER.error("Błąd podczas tworzenia tabeli '%s': %s", table_name, exc)
             raise
+
+    # Migracja: dodaj value_source jeśli tabela finansowa już istniała bez tej kolumny
+    try:
+        conn.execute("ALTER TABLE financials ADD COLUMN IF NOT EXISTS value_source VARCHAR")
+        LOGGER.info("Kolumna 'value_source' w tabeli financials gotowa")
+    except Exception as exc:
+        LOGGER.warning("Nie udało się dodać kolumny value_source: %s", exc)
 
 
 def drop_all_tables() -> None:

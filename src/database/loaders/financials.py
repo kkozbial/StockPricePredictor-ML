@@ -98,38 +98,53 @@ def load_financials_from_raw(raw_dir: Path) -> pd.DataFrame:
         LOGGER.warning("Brak wymaganych kolumn w danych finansowych: %s", required_cols)
         return pd.DataFrame()
 
-    # Zwróć w kolejności schematu: ticker, concept, country, unit, start_date, end_date, value, form, filing_date
+    # Zwróć w kolejności schematu
     # UWAGA: filing_date i form są teraz pobierane bezpośrednio z companyfacts API
-    schema_order = ["ticker", "concept", "country", "unit", "start_date", "end_date", "value", "form", "filing_date"]
+    schema_order = ["ticker", "concept", "country", "unit", "start_date", "end_date", "value", "form", "filing_date", "value_source"]
 
     # Dodaj brakujące kolumny opcjonalne
     for col in schema_order:
         if col not in df.columns:
             df[col] = None
 
-    # Usuń duplikaty - NOWA STRATEGIA:
-    # Klucz deduplikacji: (ticker, concept, end_date) - BEZ start_date
-    # Dla tej samej kombinacji mogą być różne wartości (restatements, różne formy)
-    # Strategia wyboru:
-    #   1. Jeśli są rekordy Z filing_date → zachowaj najnowszy filing_date (najbardziej aktualne dane)
-    #   2. Jeśli wszystkie BEZ filing_date → zachowaj ostatni (keep="last")
-    df = df[schema_order].dropna(subset=["end_date", "value"])
-
-    # Sortuj:
-    # - filing_date rosnąco (NaT/None na początku, najnowsze na końcu)
-    # - potem value rosnąco (zapewnia deterministyczne zachowanie)
-    # Keep="last" zachowa rekordy z końca (najnowszy filing_date lub ostatnią wartość)
     df["filing_date"] = pd.to_datetime(df["filing_date"], errors="coerce")
-    df = df.sort_values(
-        ["ticker", "concept", "end_date", "filing_date", "value"],
-        na_position="first"  # NaT na początku, więc keep="last" wybierze rekordy z filing_date
-    )
+    df["start_date"] = pd.to_datetime(df["start_date"], errors="coerce")
+    df["end_date"] = pd.to_datetime(df["end_date"], errors="coerce")
+    df = df.dropna(subset=["end_date", "value"])
 
-    # Deduplikacja: klucz = (ticker, concept, end_date), zachowaj ostatni
-    # Dzięki sortowaniu z na_position="first", ostatni rekord to:
-    # - jeśli są filing_date → ten z najnowszym filing_date
-    # - jeśli wszystkie bez filing_date → ostatni według value
+    # Oblicz długość okresu w miesiącach (dla FLOW — rekordów z start_date)
+    mask_flow = df["start_date"].notna()
+    df["_period_months"] = None
+    df.loc[mask_flow, "_period_months"] = (
+        (df.loc[mask_flow, "end_date"] - df.loc[mask_flow, "start_date"]).dt.days / 30.44
+    ).round()
+
+    # Klasyfikuj źródło wartości:
+    #   'snapshot'   — brak start_date (bilans, stan na dzień)
+    #   'discrete'   — FLOW pokrywający ~1 kwartał (start = początek kwartału, nie roku)
+    #   'cumulative' — FLOW kumulatywny YTD (start = początek roku fiskalnego)
+    df["value_source"] = "cumulative"
+    df.loc[
+        mask_flow & df["_period_months"].between(2, 4),
+        "value_source"
+    ] = "discrete"
+    df.loc[~mask_flow, "value_source"] = "snapshot"
+    df = df.drop(columns=["_period_months"])
+
+    # Deduplikacja: klucz = (ticker, concept, end_date)
+    # Strategia wyboru (keep="last" po sortowaniu rosnącym):
+    #   1. discrete > cumulative (dyskretny kwartał z SEC zawsze preferowany)
+    #   2. Wśród tej samej klasy: najnowszy filing_date
+    _source_priority = {"snapshot": 2, "discrete": 2, "cumulative": 1}
+    df["_src_prio"] = df["value_source"].map(_source_priority).fillna(0)
+    df = df.sort_values(
+        ["ticker", "concept", "end_date", "_src_prio", "filing_date", "value"],
+        na_position="first"
+    )
     df = df.drop_duplicates(subset=["ticker", "concept", "end_date"], keep="last")
+    df = df.drop(columns=["_src_prio"])
+
+    df = df[schema_order]
 
     # FALLBACK: Uzupełnij brakujące filing_date z SEC metadata (dla starych danych lub gdy API ich nie zwraca)
     # Nowe dane z fetch_financials.py już mają filing_date z companyfacts API

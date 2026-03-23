@@ -51,6 +51,9 @@ def fetch_prices(
         result.note = "no tickers"
         return result
 
+    # Pomiń delisted tickery, dla których mamy już dane do daty delistingu
+    tickers_list = _filter_out_covered_delisted(tickers_list)
+
     # Sprawdź czy używać pobierania przyrostowego
     use_incremental = should_use_incremental(cfg, "prices")
 
@@ -154,6 +157,54 @@ def _group_tickers_by_start_date(tickers: list[str], default_start: str) -> list
     result = [(date, tickers_list) for date, tickers_list in date_groups.items()]
 
     return result
+
+
+def _filter_out_covered_delisted(tickers: list[str]) -> list[str]:
+    """
+    Pomija tickery delisted, dla których mamy już ceny do daty delistingu.
+
+    Logika: jeśli ticker ma status DELISTED/DEREGISTERED w company_status
+    i ostatnia data cen w bazie >= delisting_date → nie ma czego pobierać.
+    """
+    try:
+        from ..database.connection import get_connection, table_exists
+        if not table_exists("company_status") or not table_exists("prices"):
+            return tickers
+
+        conn = get_connection()
+
+        # Pobierz delisted tickery z datą delistingu
+        delisted = conn.execute("""
+            SELECT cs.ticker, cs.delisting_date
+            FROM company_status cs
+            WHERE cs.status IN ('DELISTED', 'DEREGISTERED')
+              AND cs.delisting_date IS NOT NULL
+        """).fetchall()
+
+        if not delisted:
+            return tickers
+
+        # Sprawdź które z nich mamy już pokryte w prices
+        delisted_covered = set()
+        for ticker, delisting_date in delisted:
+            last_price_date = conn.execute(
+                "SELECT MAX(date) FROM prices WHERE ticker = ?", [ticker]
+            ).fetchone()[0]
+            if last_price_date is not None and last_price_date >= delisting_date:
+                delisted_covered.add(ticker)
+
+        if delisted_covered:
+            LOGGER.info(
+                "[fetch_prices] Pomijam %d delisted tickerów z pełnymi danymi (np. %s)",
+                len(delisted_covered),
+                ", ".join(list(delisted_covered)[:5])
+            )
+
+        return [t for t in tickers if t not in delisted_covered]
+
+    except Exception as exc:
+        LOGGER.warning("[fetch_prices] Nie udało się odfiltrować delisted tickerów: %s", exc)
+        return tickers
 
 
 def _flatten_columns(data: pd.DataFrame, tickers: list[str]) -> pd.DataFrame:

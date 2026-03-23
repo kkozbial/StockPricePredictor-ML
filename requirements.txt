@@ -29,6 +29,9 @@ PyYAML>=6.0
 # === Narzędzia ===
 tqdm>=4.65.0             # Paski postępu
 
+# === SQL Explorer ===
+streamlit>=1.30.0        # Web UI do przeglądania bazy (streamlit run explorer.py)
+
 # === Opcjonalne (development) ===
 # pytest>=7.4.0          # Testy
 # black>=23.0.0          # Formatowanie kodu

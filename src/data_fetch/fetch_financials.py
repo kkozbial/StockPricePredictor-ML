@@ -22,7 +22,7 @@ from ..utils.api_helpers import safe_get
 from ..utils.config_loader import get_path_from_config, load_config
 from ..utils.io_helpers import ensure_dir
 from ..utils.log_helpers import FetchResult, ProgressTracker
-from ..utils.incremental_helpers import should_use_incremental
+from ..utils.incremental_helpers import should_use_incremental, get_delisted_tickers
 
 LOGGER = logging.getLogger("data_fetch.financials")
 
@@ -207,6 +207,11 @@ def fetch_financial_reports(tickers: Iterable[str], output_dir: Optional[Path] =
     # Sprawdź czy używać pobierania przyrostowego
     use_incremental = should_use_incremental(cfg, "financials")
 
+    # Pobierz delisted tickery raz przed pętlą (tylko w trybie przyrostowym)
+    delisted_tickers = get_delisted_tickers() if use_incremental else set()
+    if delisted_tickers:
+        LOGGER.info("[fetch_financials] Znaleziono %d delisted tickerów - zostaną pominięte jeśli mają dane", len(delisted_tickers))
+
     LOGGER.info("[fetch_financials] Starting EDGAR download for %s tickers", len(tickers_list))
     progress = ProgressTracker(len(tickers_list), "financials")
 
@@ -218,9 +223,16 @@ def fetch_financial_reports(tickers: Iterable[str], output_dir: Optional[Path] =
             progress.update(skipped=True)
             continue
 
+        output_path = target_dir / f"{normalized}_financials.json"
+
+        # W trybie przyrostowym pomijamy delisted spółki, które mają już dane
+        if use_incremental and normalized in delisted_tickers and output_path.exists():
+            result.skipped += 1
+            progress.update(skipped=True)
+            continue
+
         # Wczytaj istniejące dane jeśli tryb przyrostowy
         existing_records = []
-        output_path = target_dir / f"{normalized}_financials.json"
         if use_incremental and output_path.exists():
             try:
                 existing_data = json.loads(output_path.read_text())
@@ -311,28 +323,29 @@ def _merge_financial_records(existing: list[dict], new: list[dict]) -> list[dict
         - Stare rekordy mogą nie mieć pól 'form' i 'filing_date'
         - Nowe rekordy zawsze mają te pola (lub None)
         - Klucz unikalności: (concept, end, value) - bez form/filing_date
+        - Jeśli stary rekord nie ma filing_date, a nowy ma → nowy wygrywa
     """
-    # Tworzymy set z unikalnych krotek (concept, end, value) dla istniejących rekordów
-    existing_set = set()
-    for record in existing:
-        key = (
-            record.get("concept"),
-            record.get("end"),
-            record.get("value")
-        )
-        existing_set.add(key)
-
-    # Dodajemy tylko nowe rekordy, których nie ma w existing_set
+    # Indeks istniejących rekordów: (concept, end, value) -> pozycja na liście
+    existing_index: dict[tuple, int] = {}
     combined = list(existing)
+    for i, record in enumerate(combined):
+        key = (record.get("concept"), record.get("end"), record.get("value"))
+        existing_index[key] = i
+
     for record in new:
-        key = (
-            record.get("concept"),
-            record.get("end"),
-            record.get("value")
-        )
-        if key not in existing_set:
+        key = (record.get("concept"), record.get("end"), record.get("value"))
+        if key not in existing_index:
+            # Nowy rekord — dodaj
+            existing_index[key] = len(combined)
             combined.append(record)
-            existing_set.add(key)
+        else:
+            # Rekord już istnieje — zaktualizuj filing_date i form jeśli stary ich nie ma
+            idx = existing_index[key]
+            old = combined[idx]
+            if not old.get("filing_date") and record.get("filing_date"):
+                old["filing_date"] = record["filing_date"]
+            if not old.get("form") and record.get("form"):
+                old["form"] = record["form"]
 
     return combined
 

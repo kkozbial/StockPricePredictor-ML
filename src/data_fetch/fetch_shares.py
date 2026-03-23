@@ -10,6 +10,7 @@ from ..utils.api_helpers import safe_get
 from ..utils.config_loader import get_path_from_config, load_config
 from ..utils.io_helpers import ensure_dir
 from ..utils.log_helpers import FetchResult, ProgressTracker
+from ..utils.incremental_helpers import should_use_incremental, get_delisted_tickers
 
 LOGGER = logging.getLogger("data_fetch.shares")
 
@@ -257,6 +258,14 @@ def fetch_shares_outstanding(tickers: Iterable[str], output_dir: Optional[Path] 
         result.note = "no tickers"
         return result
 
+    # Sprawdź czy używać pobierania przyrostowego
+    use_incremental = should_use_incremental(cfg, "shares")
+
+    # Pobierz delisted tickery raz przed pętlą (tylko w trybie przyrostowym)
+    delisted_tickers = get_delisted_tickers() if use_incremental else set()
+    if delisted_tickers:
+        LOGGER.info("[fetch_shares] Znaleziono %d delisted tickerów - zostaną pominięte jeśli mają dane", len(delisted_tickers))
+
     LOGGER.info("[fetch_shares] Starting EDGAR download for %s tickers", len(tickers_list))
     progress = ProgressTracker(len(tickers_list), "shares")
 
@@ -268,9 +277,16 @@ def fetch_shares_outstanding(tickers: Iterable[str], output_dir: Optional[Path] 
             progress.update(skipped=True)
             continue
 
+        output_path = target_dir / f"{normalized}_shares.json"
+
+        # W trybie przyrostowym pomijamy delisted spółki, które mają już dane
+        if use_incremental and normalized in delisted_tickers and output_path.exists():
+            result.skipped += 1
+            progress.update(skipped=True)
+            continue
+
         # Wczytaj istniejące dane jeśli plik istnieje (tryb przyrostowy)
         existing_records = []
-        output_path = target_dir / f"{normalized}_shares.json"
         if output_path.exists():
             try:
                 existing_data = json.loads(output_path.read_text(encoding="utf-8"))

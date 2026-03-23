@@ -133,6 +133,8 @@ def create_financials_cleaned() -> int:
                 f.start_date,
                 f.end_date,
                 f.value,
+                -- value_source: 'discrete'/'cumulative'/'snapshot' z loadera; fallback 'cumulative' dla starych danych
+                COALESCE(f.value_source, CASE WHEN f.start_date IS NULL THEN 'snapshot' ELSE 'cumulative' END) AS value_source,
                 -- Uzupełnij form: z oryginalnego wiersza, lub z grupy, lub 'forecasted'
                 COALESCE(
                     f.form,
@@ -190,87 +192,80 @@ def create_financials_cleaned() -> int:
             FROM base_data
         )
         SELECT
+            -- Identyfikatory
             ticker,
             concept,
             country,
             unit,
-            start_date,
+
+            -- Okres
             end_date,
-            value,
-            form,
+            fiscal_quarter,
             filing_date,
+            form,
 
-            -- PERIOD_TYPE: SNAPSHOT vs FLOW
+            -- Wartość kwartalna (jedyna miarodajna — YTD usunięte, dostępne w main.financials)
             CASE
-                WHEN start_date IS NULL THEN 'SNAPSHOT'  -- Balance Sheet (stan na dzień)
-                ELSE 'FLOW'  -- Income Statement, Cash Flow (przepływ w okresie)
-            END AS period_type,
+                WHEN start_date IS NULL THEN value
+                WHEN value_source = 'discrete' THEN value
+                WHEN prev_cumulative_value IS NULL THEN value
+                ELSE value - prev_cumulative_value
+            END AS value_quarterly,
 
-            -- PERIOD_LENGTH_MONTHS: długość okresu w miesiącach
+            -- Skąd pochodzi value_quarterly:
+            --   'direct'     — wzięte wprost z SEC (dyskretny kwartał lub Q1/FY bez poprzednika)
+            --   'calculated' — wyliczone: YTD - YTD_prev
+            --   'snapshot'   — stan bilansowy (przepisane bezpośrednio)
             CASE
-                WHEN start_date IS NULL THEN NULL  -- Snapshot nie ma długości
-                ELSE CAST(ROUND(DATEDIFF('day', start_date, end_date) / 30.44) AS INTEGER)  -- ~30.44 dni/miesiąc
-            END AS period_length_months,
+                WHEN start_date IS NULL THEN 'snapshot'
+                WHEN value_source = 'discrete' THEN 'direct'
+                WHEN prev_cumulative_value IS NULL THEN 'direct'
+                ELSE 'calculated'
+            END AS value_quarterly_source,
 
-            -- IS_CUMULATIVE: czy dane są kumulatywne (YTD)
-            -- Dla FLOW: TRUE (SEC raportuje kumulatywnie od początku roku fiskalnego)
-            -- Dla SNAPSHOT: FALSE (stan na dzień)
-            CASE
-                WHEN start_date IS NULL THEN FALSE  -- SNAPSHOT
-                ELSE TRUE  -- FLOW
-            END AS is_cumulative,
-
-            -- FISCAL_QUARTER: określenie kwartału na podstawie period_length_months i end_date
-            -- NOWA LOGIKA (v6 - based on actual period characteristics):
-            -- 1. Raporty 3-miesięczne → kwartał określony przez miesiąc end_date
-            -- 2. Raporty 6-miesięczne → '2' (półroczne = Q2)
-            -- 3. Raporty 9-miesięczne → '3' (3 kwartały = Q3)
-            -- 4. Raporty 12-miesięczne → 'FY' jeśli jedyny w roku, '4' w przeciwnym razie
-            -- Format: 1, 2, 3, 4, FY (bez prefiksu 'Q')
+            -- Typ okresu i szczegóły
+            CASE WHEN start_date IS NULL THEN 'SNAPSHOT' ELSE 'FLOW' END AS period_type,
             CASE
                 WHEN start_date IS NULL THEN NULL
+                ELSE CAST(ROUND(DATEDIFF('day', start_date, end_date) / 30.44) AS INTEGER)
+            END AS period_length_months,
 
-                -- Raporty 3-miesięczne: kwartał na podstawie miesiąca end_date
-                WHEN CAST(ROUND(DATEDIFF('day', start_date, end_date) / 30.44) AS INTEGER) IN (2, 3, 4) THEN
-                    CASE
-                        WHEN EXTRACT(MONTH FROM end_date) IN (1, 2, 3) THEN '1'
-                        WHEN EXTRACT(MONTH FROM end_date) IN (4, 5, 6) THEN '2'
-                        WHEN EXTRACT(MONTH FROM end_date) IN (7, 8, 9) THEN '3'
-                        WHEN EXTRACT(MONTH FROM end_date) IN (10, 11, 12) THEN '4'
-                    END
+            -- Kompletność danych dla danego (ticker, concept, rok fiskalny)
+            -- quarters_available: ile różnych kwartałów jest w tym roku (max 4)
+            COUNT(DISTINCT fiscal_quarter) OVER (
+                PARTITION BY ticker, concept, EXTRACT(YEAR FROM end_date)
+            ) AS quarters_available,
+            -- year_complete: TRUE gdy są wszystkie 4 kwartały
+            COUNT(DISTINCT fiscal_quarter) OVER (
+                PARTITION BY ticker, concept, EXTRACT(YEAR FROM end_date)
+            ) >= 4 AS year_complete
 
-                -- Raporty 5-7 miesięczne (półroczne)
-                WHEN CAST(ROUND(DATEDIFF('day', start_date, end_date) / 30.44) AS INTEGER) IN (5, 6, 7) THEN '2'
-
-                -- Raporty 8-10 miesięczne (9-miesięczne)
-                WHEN CAST(ROUND(DATEDIFF('day', start_date, end_date) / 30.44) AS INTEGER) IN (8, 9, 10) THEN '3'
-
-                -- Raporty 11+ miesięczne (roczne)
-                WHEN CAST(ROUND(DATEDIFF('day', start_date, end_date) / 30.44) AS INTEGER) >= 11 THEN
-                    CASE
-                        WHEN reports_in_fiscal_year = 1 THEN 'FY'  -- Jedyny raport w roku → FY
-                        ELSE '4'  -- Nie jedyny → Q4
-                    END
-
-                -- Inne (bardzo rzadkie)
-                ELSE 'OTHER'
-            END AS fiscal_quarter,
-
-            -- VALUE_QUARTERLY: Przekształcenie z kumulatywnego na dyskretne (kwartalne)
-            -- Dla FLOW (kumulatywne): odejmij poprzedni okres tego samego roku
-            -- Dla SNAPSHOT: value (stan bilansowy - kopiuj value)
-            -- Q1 (3m): value (bez zmian, to już czysty Q1)
-            -- Q2 (6m): value - value_Q1 (czysty Q2)
-            -- Q3 (9m): value - value_Q2 (czysty Q3)
-            -- Q4/FY (12m): value - value_Q3 (czysty Q4) lub value (jeśli FY = tylko roczne)
-            CASE
-                WHEN start_date IS NULL THEN value  -- SNAPSHOT - kopiuj value
-                WHEN prev_cumulative_value IS NULL THEN value  -- Pierwszy okres roku (Q1 lub FY) - bez zmian
-                ELSE value - prev_cumulative_value  -- Odejmij poprzedni kumulatywny
-            END AS value_quarterly
-
-        FROM base_with_lags
-        ORDER BY ticker, end_date, concept
+        FROM (
+            SELECT *,
+                CASE
+                    WHEN start_date IS NULL THEN
+                        CASE
+                            WHEN EXTRACT(MONTH FROM end_date) IN (1, 2, 3) THEN '1'
+                            WHEN EXTRACT(MONTH FROM end_date) IN (4, 5, 6) THEN '2'
+                            WHEN EXTRACT(MONTH FROM end_date) IN (7, 8, 9) THEN '3'
+                            WHEN EXTRACT(MONTH FROM end_date) IN (10, 11, 12) THEN '4'
+                        END
+                    WHEN CAST(ROUND(DATEDIFF('day', start_date, end_date) / 30.44) AS INTEGER) IN (2, 3, 4) THEN
+                        CASE
+                            WHEN EXTRACT(MONTH FROM end_date) IN (1, 2, 3) THEN '1'
+                            WHEN EXTRACT(MONTH FROM end_date) IN (4, 5, 6) THEN '2'
+                            WHEN EXTRACT(MONTH FROM end_date) IN (7, 8, 9) THEN '3'
+                            WHEN EXTRACT(MONTH FROM end_date) IN (10, 11, 12) THEN '4'
+                        END
+                    WHEN CAST(ROUND(DATEDIFF('day', start_date, end_date) / 30.44) AS INTEGER) IN (5, 6, 7) THEN '2'
+                    WHEN CAST(ROUND(DATEDIFF('day', start_date, end_date) / 30.44) AS INTEGER) IN (8, 9, 10) THEN '3'
+                    WHEN CAST(ROUND(DATEDIFF('day', start_date, end_date) / 30.44) AS INTEGER) >= 11 THEN
+                        CASE WHEN reports_in_fiscal_year = 1 THEN 'FY' ELSE '4' END
+                    ELSE 'OTHER'
+                END AS fiscal_quarter
+            FROM base_with_lags
+        ) sub
+        ORDER BY ticker, concept, end_date
     """)
 
     count = conn.execute("SELECT COUNT(*) FROM cleaned.financials_cleaned").fetchone()[0]
@@ -377,7 +372,7 @@ def create_financials_wide() -> int:
                 country,
                 FIRST(fiscal_quarter ORDER BY fiscal_quarter NULLS LAST) as fiscal_quarter
             FROM cleaned.financials_cleaned
-            WHERE fiscal_quarter IS NOT NULL  -- Tylko FLOW (mają fiscal_quarter)
+            WHERE period_type = 'FLOW'  -- Tylko FLOW
             GROUP BY ticker, end_date, country
         ),
         -- Krok 2: Dla SNAPSHOT - znajdź najbliższy późniejszy FLOW
@@ -406,7 +401,7 @@ def create_financials_wide() -> int:
                      LIMIT 1)
                 ) as days_to_flow
             FROM cleaned.financials_cleaned s
-            WHERE s.fiscal_quarter IS NULL  -- Tylko SNAPSHOT
+            WHERE s.period_type = 'SNAPSHOT'  -- Tylko SNAPSHOT
         ),
         -- Krok 3: Filtruj SNAPSHOT - zachowaj tylko te w odległości <=365 dni od FLOW
         valid_snapshot_mappings AS (
@@ -484,7 +479,7 @@ def create_financials_wide() -> int:
                     fc.end_date = aq.end_date
                     OR
                     -- Przypadek 2: SNAPSHOT z inną datą → dopasuj po zmienionej dacie
-                    (fc.fiscal_quarter IS NULL AND EXISTS (
+                    (fc.period_type = 'SNAPSHOT' AND EXISTS (
                         SELECT 1 FROM valid_snapshot_mappings v
                         WHERE v.ticker = fc.ticker
                         AND v.snapshot_end_date = fc.end_date

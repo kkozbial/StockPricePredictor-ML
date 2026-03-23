@@ -162,6 +162,33 @@ def should_use_incremental(config: dict, data_type: str) -> bool:
         return False
 
 
+def get_delisted_tickers() -> set[str]:
+    """
+    Zwraca zestaw tickerów ze statusem DELISTED lub DEREGISTERED.
+
+    Returns:
+        Set tickerów (uppercase), dla których dalsze pobieranie danych jest zbędne.
+    """
+    try:
+        if not table_exists("company_status"):
+            return set()
+
+        conn = get_connection()
+        rows = conn.execute("""
+            SELECT ticker FROM company_status
+            WHERE status IN ('DELISTED', 'DEREGISTERED')
+        """).fetchall()
+
+        return {row[0].upper() for row in rows}
+    except ValueError as exc:
+        if "Database path must be provided" in str(exc):
+            return set()
+        raise
+    except Exception as exc:
+        LOGGER.warning("[incremental] Błąd podczas pobierania delisted tickerów: %s", exc)
+        return set()
+
+
 def get_existing_financial_records(ticker: str) -> set[tuple[str, str, float]]:
     """
     Zwraca zestaw istniejących rekordów finansowych dla tickera.
